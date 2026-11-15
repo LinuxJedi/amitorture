@@ -1,0 +1,3 @@
+{
+  "_doc": "Known Copperline failures (same format as xfail.json). Empty: every failure is reported."
+}

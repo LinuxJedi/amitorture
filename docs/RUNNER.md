@@ -708,6 +708,44 @@ Builds the same report from serial captures or `mailbox.jsonl` made elsewhere (r
 Machine-readable files next to it: `summary.json`, `failures.jsonl`, `narrowing.json`, `environment.json`,
 `configs/`, `raw/<entry>/`, `repro/`. Schema: docs/schema.md.
 
+## Other emulators: Copperline (`run --copperline BIN`)
+
+`run --copperline /path/to/copperline` runs the same matrix entries and disks on Copperline
+(https://github.com/CopperlineHQ/Copperline) instead of Amiberry. The backend is `copperline.py`; `runner._run_disk`
+hands every launch to it, and everything after the launch (records, classification, problems, REPORT.md) is the
+common code.
+
+- **Launch.** `copperline --config <entry>.toml --noaudio --control :0 --control-info <file>`: a headless machine
+  that only runs while the runner asks it to, over Copperline's control protocol (JSON-RPC on a loopback TCP port,
+  the token and port come from the info file). The config is written from the entry's machine: model, chipset,
+  video standard, CPU, FPU and memory sizes. It is kept as `configs/<entry>.<disk>.toml`.
+- **Emulated-time driven.** The runner steps the machine a frame or two at a time (`step_frame`) and reads the
+  transports between the steps. A launch therefore gives the same records on every host and under any load.
+  `--timeout` and `--hang` are emulated seconds for this backend; a wall-clock limit of six host seconds per
+  emulated second of `--timeout` only guards against a stuck emulator process.
+- **Transports.** Serial is `[serial] mode = "stdout"`: the process's stdout is `raw/<entry>/<disk>/serial.bin`.
+  The mailbox is read with `mem.read`, and acks are written with `mem.write`.
+- **Host requests.** `key` -> `input.key`, `mouse` -> `input.mouse`, `joy` and `cd32pad` -> `input.joy` (the
+  port's device is switched with `input.set_port` first), `screenshot` -> `capture.screenshot`, `pcmcia` ->
+  `pcmcia.eject` / `pcmcia.insert`, `wait` -> acked. `pacing` is acked as "not warped": host pacing is invisible
+  to the emulated machine. `audio_mark` is refused: there is no audio capture yet.
+- **Entries that are dropped** (listed in `environment.json` as `backend_dropped`): threaded-CPU and softfloat
+  twins and the `-strict` instruction-policy twins (Copperline has one core, with the hardware's trap behaviour),
+  the hostspeed-only entries, CD-booted machines and expansion-board entries (not mapped yet). JIT twins run with
+  `[cpu] jit = true`.
+- **Run parameters.** `intcompat` and `fpucompat` are never set (hardware-strict), and the hostspeed module is
+  masked off: it is a host real-time check, and the headless machine is not paced.
+- **Test media.** A signed DF1 disk on every entry, and a signed 16 MB RDB hardfile on the IDE port of A600, A1200
+  and A4000 entries (16 MB is a whole number of cylinders both as 16 x 63 and as Copperline's 16 x 32 sectors).
+  No PCMCIA SRAM card.
+- **Not available:** narrowing and repro packs (their neighbour configs and `config.uae` are Amiberry's),
+  `--dump-config` validation, per-module warp, and the Amiberry xfail registry. `xfail-copperline.json` is the
+  registry for this backend and starts empty.
+- **Diagnostics.** `COPPERLINE_*` variables in the runner's environment are passed through to the emulator (its
+  diagnostics are start-up environment knobs that do not change the emulated timeline, for example
+  `COPPERLINE_DIAG_COP_WRITES=1` or the `COPPERLINE_DBG_*` debugger); the output lands in the entry's
+  `copperline.log`. Nothing else of the caller's environment reaches the emulator.
+
 ## Code layout
 
 | file | role |
@@ -737,6 +775,7 @@ Machine-readable files next to it: `summary.json`, `failures.jsonl`, `narrowing.
 | `coverage.py` | module axes, coverage keys, axis validation against old-style results (`axes`) |
 | `plan.py` | plans: the launches that run every coverage key once, cost estimates |
 | `pacing.py` | pacing per module: which modules of an entry run warped |
+| `copperline.py` | Copperline backend: config, control-protocol client, host requests, the launch (`run --copperline`) |
 | `times.py` | host time per disk and module of a results dir (`times`) |
 
 Unit tests: `cd runner && python3 -m unittest discover -s tests` (no emulator needed).

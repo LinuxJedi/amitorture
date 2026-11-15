@@ -86,6 +86,8 @@ class Requests:
     frame_hz    50 (PAL) / 60 (NTSC): screenshot {"frames": n} waits n frames
     """
 
+    KNOWN = KNOWN       # a backend may serve more (copperline.py: pcmcia)
+
     def __init__(self, ipc, rawdir, rel="", options=None, audio=None, frame_hz=50, clock=time.monotonic,
                  sleep=time.sleep, t0=None, log=None, pacing=0, floppy_after=None, module_warp=None):
         self.ipc, self.rawdir, self.rel = ipc, rawdir, rel
@@ -163,7 +165,7 @@ class Requests:
         else:
             self.stats["captures"] += 1
         try:
-            fn = getattr(self, f"_do_{what}", None) if what in KNOWN else None
+            fn = getattr(self, f"_do_{what}", None) if what in self.KNOWN else None
             if fn is None:
                 ok, result = False, {"error": f"unknown request {what!r}: never acknowledged (CONTRACT §13)"}
             else:

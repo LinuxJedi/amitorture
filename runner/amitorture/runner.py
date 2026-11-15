@@ -19,6 +19,7 @@ from .emulator import RunnerError
 class Options:
     def __init__(self, **kw):
         self.binary = kw["binary"]
+        self.emulator = kw.get("emulator") or "amiberry"   # amiberry | copperline (copperline.py)
         self.kickstarts = kw["kickstarts"]
         self.workdir = kw["workdir"]
         self.configs = kw.get("configs") or []
@@ -778,6 +779,9 @@ def _run_disk(opts, ctx, entry, binary=None, extra_options=None, disk=None):
     """One emulator launch of one entry with one disk ((name, path) of the
     disk set, or None for the single --adf / --no-disk). Returns a result
     dict as described in docs/schema.md (one per disk)."""
+    if getattr(opts, "emulator", "amiberry") == "copperline":
+        from . import copperline
+        return copperline.run_disk(opts, ctx, entry, binary=binary, extra_options=extra_options, disk=disk)
     binary = binary or opts.binary
     rid = entry["id"]
     safe = safe_id(rid)
@@ -1720,6 +1724,8 @@ class Context:
                         "show": getattr(opts, "show", False), "warp": opts.warp,
                         "module_warp": getattr(opts, "module_warp", None) or "off"},
             "plan": getattr(opts, "plan_info", None),
+            "emulator": getattr(opts, "emulator", "amiberry"),
+            "backend_dropped": getattr(opts, "backend_dropped", None),
         }
         self.d["romset"] = romid.RomSet(self.environment["roms"])
         self._binfo = {opts.binary: self.environment["amiberry"]}
@@ -1804,6 +1810,13 @@ def select_entries(opts):
         if not entries:
             raise RunnerError(f"--config {opts.configs}: no matrix entry matches; see `amitorture matrix --matrix full`")
     entries = matrix.apply_overrides(entries, opts.sets)
+    if getattr(opts, "emulator", "amiberry") == "copperline":
+        # Amiberry's engine twins and host-speed entries have no counterpart
+        from . import copperline
+        entries, opts.backend_dropped = copperline.filter_entries(entries)
+        if not entries:
+            raise RunnerError("no entry of the selection can run on Copperline: "
+                              + "; ".join(f"{d['id']}: {d['why']}" for d in opts.backend_dropped[:5]))
     # before planning: the policy looks at whole families (reference + twins)
     pacing.assign(entries)
     # A matrix run runs each coverage key once (plan.py); entries named with

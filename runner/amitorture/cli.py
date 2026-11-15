@@ -256,7 +256,7 @@ def make_options(a, binary):
         boot_warp=getattr(a, "boot_warp", "on") != "off",
         module_warp=getattr(a, "module_warp", None),
         ports=parse_ports(getattr(a, "ports", None)),
-        show=_check_show(a))
+        show=_check_show(a), emulator="copperline" if getattr(a, "copperline", None) else "amiberry")
 
 
 def _check_show(a):
@@ -284,7 +284,17 @@ def parse_ports(spec):
 
 def cmd_run(a):
     from . import emulator, runner
-    opts = make_options(a, emulator.find_binary(a.amiberry))
+    if getattr(a, "copperline", None):
+        if a.amiberry:
+            raise RunnerError("use --amiberry or --copperline, not both")
+        opts = make_options(a, emulator.find_binary(a.copperline))
+        # Amiberry-only parts of a run: neighbour configs (narrowing), repro
+        # packs (config.uae), per-module warp, the Amiberry xfail registry
+        opts.narrow, opts.repro, opts.module_warp, opts.warp = False, False, "off", "off"
+        if not opts.xfail_path:
+            opts.xfail_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "xfail-copperline.json")
+    else:
+        opts = make_options(a, emulator.find_binary(a.amiberry))
     if opts.module_warp is None:
         opts.module_warp = "auto"       # run's default: pacing per module (pacing.py)
     outdir, summ = runner.run(opts)
@@ -536,6 +546,9 @@ def build_parser():
     p = sub.add_parser("run", help="run the test disk on every entry, then parity, narrowing, report")
     p.add_argument("--amiberry", metavar="PATH", help="Amiberry binary (default: 'amiberry' on PATH; never built)")
     _common(p)
+    p.add_argument("--copperline", metavar="PATH",
+                   help="run on Copperline instead of Amiberry: its binary (copperline.py; headless over the "
+                        "control protocol, emulated-time limits, no narrowing or repro packs)")
     p.add_argument("--no-disk", action="store_true",
                    help="boot without a test disk: only checks that Amiberry starts isolated, and its IPC socket, "
                         "serial port and memory reads work")
